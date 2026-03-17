@@ -1,5 +1,4 @@
 from flask import Flask
-import fdb
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -10,12 +9,6 @@ host = app.config['DB_HOST']
 database = app.config['DB_NAME']
 user = app.config['DB_USER']
 password = app.config['DB_PASSWORD']
-
-try:
-    con = fdb.connect(host=host, database=database, user=user, password=password)
-    print("Conexão foi um sucesso")
-except Exception as e:
-    print(f"Erro na conexão: {e}")
 
 from usuario import *
 
