@@ -1,4 +1,4 @@
-from flask import jsonify, request, make_response
+from flask import jsonify, request, make_response, render_template
 from funcao import senha_forte, enviando_email, gerar_token, verificar_existente, senha_correspondente, senha_antiga, decodificar_token
 from flask_bcrypt import generate_password_hash, check_password_hash
 from main import app
@@ -7,7 +7,6 @@ import threading
 import os
 import datetime
 from random import randint
-import jwt
 
 
 # Criar usuário
@@ -31,7 +30,7 @@ def criar_usuarios():
     tipo = request.form.get('tipo', 1)
     foto_perfil = request.files.get('foto_perfil')
     data_cadastro = datetime.datetime.now()
-    status = 1
+    ativo = 1
     aprovacao = 0
     email_confirmacao = 0
 
@@ -65,12 +64,12 @@ def criar_usuarios():
         cur.execute("""INSERT INTO USUARIOS (NOME, EMAIL, SENHA, CPF_CNPJ, TELEFONE,
                                              DESCRICAO_BREVE, DESCRICAO_LONGA,
                                              APROVACAO, COD_BANCO, NUM_AGENCIA, NUM_CONTA,
-                                             TIPO_CONTA, CHAVE_PIX, CATEGORIA, STATUS, LOCALIZACAO,
+                                             TIPO_CONTA, CHAVE_PIX, CATEGORIA, ATIVO, LOCALIZACAO,
                                              TIPO, DATA_CADASTRO, EMAIL_CONFIRMACAO, CODIGO_CONFIRMACAO, TENTATIVA)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ID_USUARIOS""",
                     (nome, email, senha_cripto, cpf_cnpj, telefone, descricao_breve,
                      descricao_longa, aprovacao, cod_banco, num_agencia, num_conta, tipo_conta,
-                     chave_pix, categoria, status, localizacao, tipo, data_cadastro, email_confirmacao,
+                     chave_pix, categoria, ativo, localizacao, tipo, data_cadastro, email_confirmacao,
                      codigo_confirmacao, tentativa))
         codigo_usuarios = cur.fetchone()[0]
 
@@ -85,15 +84,15 @@ def criar_usuarios():
             caminho_imagem = os.path.join(caminho_imagem_destino, nome_imagem)
             foto_perfil.save(caminho_imagem)
 
-        assunto = f'Confirmação do e-mail'
-        mensagem = (f'Primeirmente, agradecemos o cadastro na Doar+!'
-                    f'Aqui o código para verificar seu e-mail:'
-                    f'{codigo_confirmacao}')
-        thread = threading.Thread(target=enviando_email,
-                                  args=(email, assunto, mensagem)
-                                  )
 
-        thread.start()
+        assunto = 'Código de Confirmação de E-mail'
+        mensagem = 'Bem-vindo(a) à Doar +! Para prosseguir, é necessário confirmar seu e-mail'
+        codigo = codigo_confirmacao
+        html = render_template('template_email.html', mensagem=mensagem, codigo=codigo)
+
+        threading.Thread(target=enviando_email,
+                         args=(email, assunto, html)
+                         ).start()
 
         return jsonify({'message': "Usuário cadastrado com sucesso",
                         'usuario': {
@@ -110,8 +109,7 @@ def criar_usuarios():
                             'tipo_conta': tipo_conta,
                             'chave_pix': chave_pix,
                             'categoria': categoria,
-                            'localizacao': localizacao,
-                            'caminho': caminho_imagem
+                            'localizacao': localizacao
                         }
                         }), 201
     except Exception as e:
@@ -146,7 +144,7 @@ def editar_usuarios(id_usuarios):
                               TIPO_CONTA,
                               CHAVE_PIX,
                               CATEGORIA,
-                              STATUS,
+                              ATIVO,
                               LOCALIZACAO,
                               TIPO,
                               DATA_CADASTRO,
@@ -173,7 +171,7 @@ def editar_usuarios(id_usuarios):
         tipo_conta = request.form.get('tipo_conta', tem_usuario[12])
         chave_pix = request.form.get('chave_pix', tem_usuario[13])
         categoria = request.form.get('categoria', tem_usuario[14])
-        status = tem_usuario[15]
+        ativo = tem_usuario[15]
         localizacao = request.form.get('localizacao', tem_usuario[16])
         senha = request.form.get('senha', None)
         confirmar_senha = request.form.get('confirmar_senha', None)
@@ -224,7 +222,7 @@ def editar_usuarios(id_usuarios):
                            TIPO_CONTA         = ?,
                            CHAVE_PIX          = ?,
                            CATEGORIA          = ?,
-                           STATUS             = ?,
+                           ATIVO             = ?,
                            LOCALIZACAO        = ?,
                            TIPO               = ?,
                            DATA_CADASTRO      = ?,
@@ -234,7 +232,7 @@ def editar_usuarios(id_usuarios):
                        WHERE ID_USUARIOS = ?""", (nome, email, nova_senha_hash, cpf_cnpj, telefone, descricao_breve,
                                                   descricao_longa, aprovacao, cod_banco, num_agencia, num_conta,
                                                   tipo_conta,
-                                                  chave_pix, categoria, status, localizacao, tipo, data_cadastro,
+                                                  chave_pix, categoria, ativo, localizacao, tipo, data_cadastro,
                                                   email_confirmacao,
                                                   codigo_confirmacao, tentativa, id_usuarios))
         con.commit()
@@ -248,17 +246,18 @@ def editar_usuarios(id_usuarios):
             caminho_imagem = os.path.join(caminho_imagem_destino, nome_imagem)
             foto_perfil.save(caminho_imagem)
 
-        assunto = f'Confirmação do e-mail'
-        mensagem = (f'Primeirmente, agradecemos a sua participação na Doar+!'
-                    f'Aqui o código para verificar seu e-mail:'
-                    f'{codigo_confirmacao}')
-        thread = threading.Thread(target=enviando_email,
-                                  args=(email, assunto, mensagem)
-                                  )
+        assunto = 'Código de Confirmação de E-mail'
+        mensagem = 'Percebemos que você alterou seu e-mail, por isso é necessário o confirmar novamente'
+        codigo = codigo_confirmacao
 
-        thread.start()
+        html = render_template('template_email.html', mensagem=mensagem, codigo=codigo)
 
-        return jsonify({'message': "Usuário cadastrado com sucesso",
+        # Reenvia o código existente
+        threading.Thread(target=enviando_email,
+                         args=(email, assunto, html)
+                         ).start()
+
+        return jsonify({'message': "Usuário editado com sucesso",
                         'usuario': {
                             'tipo': tipo,
                             'nome': nome,
@@ -300,6 +299,21 @@ def deletar_usuarios(id_usuarios):
         if not cur.fetchone():
             return jsonify({"error": "Usuário não encontrado"}), 404
 
+        cur.execute("""SELECT ID_HISTORICO_SENHA
+                       FROM HISTORICO_SENHA 
+                       WHERE ID_USUARIOS = ?""", (id_usuarios,))
+        if cur.fetchall():
+            id_senhas_antigas = cur.fetchall()
+            for id in id_senhas_antigas:
+                cur.execute("""DELETE FROM HISTORICO_SENHA 
+                            where ID_HISTORICO_SENHA = ?""", (id,))
+                con.commit()
+
+        cur.execute("""DELETE FROM RECUPERACAO_SENHA
+                    WHERE ID_USUARIOS = ?""", (id_usuarios,))
+
+        con.commit()
+
         cur.execute("""DELETE
                        FROM USUARIOS
                        WHERE ID_USUARIOS = ?""", (id_usuarios,))
@@ -313,6 +327,102 @@ def deletar_usuarios(id_usuarios):
         cur.close()
         con.close()
 
+@app.route('/ativar_usuarios/<int:id_usuarios>', methods=['PUT'])
+def ativar_usuarios(id_usuarios):
+    con = conexao()
+
+    cur = con.cursor()
+
+    try:
+        if decodificar_token() == False:
+            return jsonify({'message': 'Token necessário'}), 401
+        if decodificar_token()['tipo'] == 0:
+            cur.execute("""UPDATE USUARIOS
+                           SET ATIVO = 1
+                           WHERE ID_USUARIOS = ?""", (id_usuarios, ))
+            con.commit()
+            return jsonify({'mensagem': 'Usuário ativado com sucesso!'})
+        return jsonify({'mensagem': 'É necessário ser administrador'})
+    finally:
+        cur.close()
+        con.close()
+
+# Inativar usuário
+@app.route('/inativar_usuarios/<int:id_usuarios>', methods=['PUT'])
+def inativar_usuarios(id_usuarios):
+    con = conexao()
+    cur = con.cursor()
+    try:
+        if decodificar_token() == False:
+            return jsonify({'message': 'Token necessário'}), 401
+        if decodificar_token()['tipo'] != 0 and decodificar_token()['id_usuarios'] != id_usuarios:
+            return jsonify({'message': 'É necessário ser administrador para isso'}), 401
+        cur.execute("""SELECT ID_USUARIOS
+                       FROM USUARIOS
+                       WHERE ID_USUARIOS = ?""", (id_usuarios,))
+
+        if not cur.fetchone():
+            return jsonify({"error": "Usuário não encontrado"}), 404
+
+        cur.execute("""UPDATE USUARIOS 
+                       SET ATIVO  = 0
+                       WHERE ID_USUARIOS = ?""", (id_usuarios,))
+        con.commit()
+
+        return jsonify({"message": "Usuário inativado com sucesso"})
+
+    except Exception as e:
+        return jsonify(mensagem=f'Erro ao consultar o banco de dados: {e}'), 500
+    finally:
+        cur.close()
+        con.close()
+
+@app.route('/listar_usuarios', methods=['GET'])
+def listar_usuarios():
+    con = conexao()
+    cur = con.cursor()
+
+    try:
+        if decodificar_token() == False:
+            return jsonify({'message': 'Token necessário'}), 401
+        if decodificar_token()['tipo'] != 0:
+            return jsonify({'message': 'É necessário ser administrador para isso'}), 401
+        cur.execute("""SELECT ID_USUARIOS,
+                              NOME,
+                              EMAIL,
+                              SENHA,
+                              CPF_CNPJ,
+                              TELEFONE,
+                              DESCRICAO_BREVE,
+                              DESCRICAO_LONGA,
+                              APROVACAO,
+                              COD_BANCO,
+                              NUM_AGENCIA,
+                              NUM_CONTA,
+                              TIPO_CONTA,
+                              CHAVE_PIX,
+                              CATEGORIA,
+                              ATIVO,
+                              LOCALIZACAO,
+                              TIPO,
+                              DATA_CADASTRO,
+                              EMAIL_CONFIRMACAO,
+                              CODIGO_CONFIRMACAO,
+                              TENTATIVA
+                       FROM USUARIOS""")
+        usuarios = cur.fetchall()
+        if usuarios:
+            return jsonify({'usuarios': usuarios}), 200
+        else:
+            return jsonify({
+                'error': 'Não foi possível encontrar esse usuário'
+            }), 404
+
+    except Exception as e:
+        return jsonify(mensagem=f'Erro ao consultar o banco de dados: {e}'), 500
+    finally:
+        cur.close()
+        con.close()
 
 @app.route('/buscar_usuarios', methods=['GET'])
 def buscar_usuarios():
@@ -325,18 +435,35 @@ def buscar_usuarios():
             return jsonify({'message': 'Token necessário'}), 401
         if decodificar_token()['tipo'] != 0:
             return jsonify({'message': 'É necessário ser administrador para isso'}), 401
-        cur.execute("""SELECT ID_USUARIOS, NOME
+        valor_busca = f"%{cpf_cnpj}%"
+        cur.execute("""SELECT ID_USUARIOS,
+                              NOME,
+                              EMAIL,
+                              SENHA,
+                              CPF_CNPJ,
+                              TELEFONE,
+                              DESCRICAO_BREVE,
+                              DESCRICAO_LONGA,
+                              APROVACAO,
+                              COD_BANCO,
+                              NUM_AGENCIA,
+                              NUM_CONTA,
+                              TIPO_CONTA,
+                              CHAVE_PIX,
+                              CATEGORIA,
+                              ATIVO,
+                              LOCALIZACAO,
+                              TIPO,
+                              DATA_CADASTRO,
+                              EMAIL_CONFIRMACAO,
+                              CODIGO_CONFIRMACAO,
+                              TENTATIVA
                        FROM USUARIOS
-                       WHERE cpf_cnpj = ?""", (cpf_cnpj,))
-        usuario = cur.fetchone()
+                       WHERE cpf_cnpj LIKE ?""", (valor_busca,))
+        usuarios = cur.fetchall()
 
-        if usuario:
-            id_usuarios = usuario[0]
-            nome = usuario[1]
-            return jsonify({
-                'usuario': id_usuarios,
-                'nome': nome
-            }), 200
+        if usuarios:
+            return jsonify({'usuarios': usuarios}), 200
         else:
             return jsonify({
                 'error': 'Não foi possível encontrar esse usuário'
@@ -360,7 +487,15 @@ def login():
     try:
         if decodificar_token() != False:
             return jsonify({'message': 'É necessário estar deslogado para logar'}), 401
-        cur.execute("""SELECT ID_USUARIOS, TIPO, NOME, CPF_CNPJ, SENHA, TENTATIVA, EMAIL_CONFIRMACAO
+
+        cur.execute("""SELECT ID_USUARIOS,
+                              TIPO,
+                              NOME,
+                              CPF_CNPJ,
+                              SENHA,
+                              TENTATIVA,
+                              EMAIL_CONFIRMACAO,
+                              ATIVO
                        FROM USUARIOS
                        WHERE CPF_CNPJ = ?""", (cpf_cnpj,))
         usuario = cur.fetchone()
@@ -374,10 +509,17 @@ def login():
         senha_hash = usuario[4]
         tentativa = usuario[5]
         email_confirmacao = usuario[6]
+        ativo = usuario[7]
+
 
         if tentativa > 3:
             return jsonify(
                 {"error": "Esse usuário está bloqueado! Entre em contato com o administrador"}
+            ), 400
+
+        if ativo == 0:
+            return jsonify(
+                {"error": "Esse usuário está inativado"}
             ), 400
 
         if email_confirmacao == 0:
@@ -385,8 +527,18 @@ def login():
                 {"error": "Verifique o e-mail antes de logar!"}
             ), 400
 
+
         if check_password_hash(senha_hash, senha):
             id_usuarios = usuario[0]
+
+
+            if tentativa > 0:
+                cur.execute("""UPDATE USUARIOS
+                               SET TENTATIVA = 0
+                               WHERE ID_USUARIOS = ?""", (id_usuarios,))
+                con.commit()
+
+
             token = gerar_token(tipo, id_usuarios, 10)
             resp = make_response(jsonify({'mensagem': f'Bem-vindo {nome}!'}))
             resp.set_cookie('acess_token', token,
@@ -396,12 +548,16 @@ def login():
                             path="/",
                             max_age=3600)
             return resp
+
+
         tentativa = tentativa + 1
         cur.execute("""UPDATE USUARIOS
                        SET TENTATIVA = ?
                        WHERE ID_USUARIOS = ?""", (tentativa, id_usuarios))
         con.commit()
+
         return jsonify({"error": "Senha incorreta"}), 400
+
     except Exception as e:
         return jsonify(mensagem=f'Erro ao consultar o banco de dados: {e}'), 500
     finally:
@@ -484,8 +640,7 @@ def confirmar_email():
 
 @app.route('/esqueci_senha', methods=['POST'])
 def esqueci_senha():
-    dados = request.json
-    email = dados.get('email')
+    email = request.form.get('email')
 
     if not email:
         return jsonify(mensagem="Por favor, envie o e-mail."), 400
@@ -494,26 +649,48 @@ def esqueci_senha():
     cursor = con.cursor()
 
     try:
-        cursor.execute("SELECT id_usuarios, NOME FROM usuarios WHERE EMAIL = ?", (email,))
+        # Busca o usuário e verifica se está ativo
+        cursor.execute("SELECT id_usuarios, NOME, ATIVO FROM usuarios WHERE EMAIL = ?", (email,))
         usuario = cursor.fetchone()
 
         if not usuario:
-            return jsonify(mensagem="Usuário não encontrado"), 200
+            # Por segurança, muitas APIs retornam 200 mesmo se não achar,
+            # mas aqui mantemos sua lógica de feedback.
+            return jsonify(mensagem="Usuário não encontrado"), 404
 
         id_usuarios = usuario[0]
         nome = usuario[1]
+        ativo = usuario[2]
 
-        cursor.execute("""SELECT CODIGO, DATA_EXPIRACAO FROM RECUPERACAO_SENHA
+        if ativo == 0:
+            return jsonify({"error": "Esse usuário está inativado"}), 403
+
+        # Verifica se já existe um código de recuperação para este usuário
+        cursor.execute("""SELECT CODIGO, DATA_EXPIRACAO
+                          FROM RECUPERACAO_SENHA
                           WHERE ID_usuarios = ?""", (id_usuarios,))
 
-        if cursor.fetchone() and cursor.fetchone()[1] > datetime.datetime.now():
-                codigo = cursor.fetchone()[0]
-                assunto = "Código de Recuperação de Senha"
-                texto_email = f"Olá {nome},\nSeu código de verificação é: {codigo}."
-                threading.Thread(target=enviando_email, args=(email, assunto, texto_email)).start()
+        # CORREÇÃO AQUI: Salvamos em uma variável para não chamar o fetchone() duas vezes
+        dados_recuperacao = cursor.fetchone()
 
-                return jsonify(mensagem="Percebemos que seu código ainda está ativo, por isso ele foi reenviado para o e-mail!"), 200
+        # Se existir um código e ele ainda for válido (não expirou)
+        if dados_recuperacao and dados_recuperacao[1] > datetime.datetime.now():
+            codigo = dados_recuperacao[0]
+            assunto = 'Código de Recuperação de Senha'
+            mensagem = 'Recebemos uma solicitação para recuperar sua senha'
+            codigo = codigo
 
+            html = render_template('template_email.html', mensagem=mensagem, codigo=codigo)
+
+            # Reenvia o código existente
+            threading.Thread(target=enviando_email,
+                             args=(email, assunto, html)
+                             ).start()
+
+            return jsonify(
+                mensagem="Percebemos que seu código ainda está ativo, por isso ele foi reenviado para o e-mail!"), 200
+
+        # Se não existe código ou ele expirou, deletamos os antigos e criamos um novo
         cursor.execute("DELETE FROM RECUPERACAO_SENHA WHERE id_usuarios = ?", (id_usuarios,))
 
         codigo = randint(100000, 999999)
@@ -526,9 +703,15 @@ def esqueci_senha():
 
         con.commit()
 
-        assunto = "Código de Recuperação de Senha"
-        texto_email = f"Olá {nome},\nSeu código de verificação é: {codigo}\nEle expira em 30 minutos."
-        threading.Thread(target=enviando_email, args=(email, assunto, texto_email)).start()
+        # Envio do novo código
+        assunto = 'Código de Recuperação de Senha'
+        mensagem = 'Recebemos uma solicitação para recuperar sua senha'
+        codigo = codigo
+        html = render_template('template_email.html', mensagem=mensagem, codigo=codigo)
+
+        threading.Thread(target=enviando_email,
+                         args=(email, assunto, html)
+                         ).start()
 
         return jsonify(mensagem="Código enviado para o e-mail!"), 200
 
@@ -542,8 +725,7 @@ def esqueci_senha():
 
 @app.route('/verificar_codigo', methods=['POST'])
 def verificar_codigo():
-    dados = request.get_json()
-    codigo_digitado = dados.get('codigo_digitado')
+    codigo_digitado = request.form.get('codigo_digitado')
 
     if not codigo_digitado:
         return jsonify({'message': 'Preencha o código'}), 400
@@ -552,7 +734,8 @@ def verificar_codigo():
     cursor = con.cursor()
 
     try:
-        cursor.execute('SELECT id_usuarios, data_expiracao FROM recuperando_senha WHERE codigo = ?', (codigo_digitado, ))
+
+        cursor.execute('SELECT id_usuarios, data_expiracao FROM RECUPERACAO_SENHA WHERE codigo = ?', (codigo_digitado,))
         recuperacao = cursor.fetchone()
 
         if not recuperacao:
@@ -566,15 +749,17 @@ def verificar_codigo():
             con.commit()
             return jsonify(mensagem="Este código expirou. Solicite um novo."), 400
 
-        cursor.execute("""SELECT TIPO FROM USUARIOS WHERE ID_USUARIOS = ?""", (id_usuarios,))
+        cursor.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIOS = ?", (id_usuarios,))
         tipo = cursor.fetchone()[0]
 
-        token = gerar_token(tipo, id_usuarios, 10)
 
-        return jsonify(mensagem="Código correto!")
+        token = gerar_token(tipo, id_usuarios, 5)
+
+
+        return jsonify(mensagem="Código correto! Você tem 5 minutos para alterar sua senha"), 200
 
     except Exception as e:
-        return jsonify({'message': f'Erro: {e}'})
+        return jsonify({'message': f'Erro: {e}'}), 500
     finally:
         cursor.close()
         con.close()
