@@ -1,7 +1,5 @@
 from flask_bcrypt import generate_password_hash, check_password_hash
-from flask import request, jsonify, current_app
-# Importar a chave secreta do config
-#from config import SECRET_KEY
+from flask import request, current_app, render_template
 
 # Importar o con da main
 from db import conexao
@@ -9,6 +7,7 @@ from db import conexao
 # Bibliotecas para envio de e-mail
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Bibliotecas para token
 import jwt
@@ -45,7 +44,6 @@ def verificar_existente(valor, tipo, id_usuarios = None):
             return True
         return False
     except Exception as e:
-        print(f"Erro na validação do e-mail ou cpf/cnpj: {e}")
         return False
     finally:
         cur.close()
@@ -57,7 +55,6 @@ def senha_correspondente(senha, confirmar_senha):
             return True
         return False
     except Exception as e:
-        print(f"Erro na validação da senha: {e}")
         return False
 
 
@@ -84,7 +81,6 @@ def senha_forte(senha):
             return True
         return False
     except Exception as e:
-        print(f"Erro na validação da senha: {e}")
         return False
 
 def senha_antiga(id_usuarios, nova_senha):
@@ -94,12 +90,21 @@ def senha_antiga(id_usuarios, nova_senha):
         cursor.execute('SELECT senha FROM usuarios WHERE id_usuarios = ?', (id_usuarios, ))
         senha_atual_hash = cursor.fetchone()[0]
 
-        cursor.execute('SELECT FIRST 2 SENHA_HASH FROM HISTORICO_SENHA WHERE id_usuarios = ? ORDER BY DATA_ALTERACAO DESC',
+        cursor.execute('SELECT FIRST 2 SENHA_HASH FROM HISTORICO_SENHA WHERE id_usuarios = ? ORDER BY DATA_ALTERACAO ASC',
                    (id_usuarios,))
         ultimas_senhas = cursor.fetchall()
 
+        cursor.execute(
+            'SELECT FIRST 1 ID_HISTORICO_SENHA FROM HISTORICO_SENHA WHERE id_usuarios = ? ORDER BY DATA_ALTERACAO ASC',
+            (id_usuarios,))
+
+        tem_senha = cursor.fetchone()
+        if tem_senha:
+            senha_mais_antiga = tem_senha[0]
+
         for u in ultimas_senhas:
-            if check_password_hash(u, nova_senha):
+            senha_antiga = u[0]
+            if check_password_hash(senha_antiga, nova_senha):
                 return False
 
         if check_password_hash(senha_atual_hash, nova_senha):
@@ -107,37 +112,45 @@ def senha_antiga(id_usuarios, nova_senha):
 
         data_alteracao = datetime.datetime.utcnow()
 
-        print(id_usuarios, senha_atual_hash, data_alteracao)
-
         cursor.execute("INSERT INTO HISTORICO_SENHA(id_usuarios, SENHA_HASH, data_Alteracao) VALUES(?, ?, ?)",
                        (id_usuarios, senha_atual_hash, data_alteracao))
 
-        print("aquiiii")
-
         cursor.execute('DELETE FROM RECUPERACAO_SENHA WHERE id_usuarios = ?', (id_usuarios,))
+
+        if ultimas_senhas:
+            if len(ultimas_senhas) == 2:
+                cursor.execute(""" DELETE FROM HISTORICO_SENHA
+                                   WHERE ID_HISTORICO_SENHA = ?""",
+                               (senha_mais_antiga,))
+
 
         con.commit()
 
         return True
 
     except Exception as e:
+        print(e)
         return False
 
 
-def enviando_email(destinatario, assunto, mensagem):
+def enviando_email(destinatario, assunto, html):
     user = 'luisa.michelinr@gmail.com'
     senha = 'hqca hibi tndj trfk'
 
-    msg = MIMEText(mensagem)
+    msg = MIMEMultipart()
     msg['From'] = user
     msg['To'] = destinatario
     msg['Subject'] = assunto
+    msg.attach(MIMEText(html, 'html'))
 
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(user, senha)
-    server.send_message(msg)
-    server.quit()
+
+    try:
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(user, senha)
+        server.sendmail(user, [destinatario], msg.as_string())
+    finally:
+        server.quit()
+
 
 def gerar_token(tipo, id_usuarios, tempo):
     payload = { 'tipo': tipo,
