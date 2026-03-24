@@ -12,9 +12,11 @@ from random import randint
 # Criar usuário
 @app.route('/criar_usuarios', methods=['POST'])
 def criar_usuarios():
+    # Pega as informações do body. Utilizamos o request.form.get visto que ele
+    # permite colocar um valor para caso o usuário não preencha esse campo
     nome = request.form.get('nome', None)
-    email = request.form.get('email')
-    cpf_cnpj = request.form.get('cpf_cnpj')
+    email = request.form.get('email', None)
+    cpf_cnpj = request.form.get('cpf_cnpj', None)
     telefone = request.form.get('telefone', None)
     descricao_breve = request.form.get('descricao_breve', None)
     descricao_longa = request.form.get('descricao_longa', None)
@@ -27,33 +29,59 @@ def criar_usuarios():
     localizacao = request.form.get('localizacao', None)
     senha = request.form.get('senha')
     confirmar_senha = request.form.get('confirmar_senha')
+
+    # Tipo 0 - ADM
+    # Tipo 1 - Doador
+    # Tipo 2 - ONG
     tipo = request.form.get('tipo', 1)
+
     foto_perfil = request.files.get('foto_perfil')
+
+    # Armazena a data e horário que o usuário se cadastrou
     data_cadastro = datetime.datetime.now()
+
+    # Define que o usuário, por padrão, está ativo
     ativo = 1
-    aprovacao = 0
+
+    # Define que o usuário de ONG, ainda não foi aprovado
+    if tipo == 2:
+        aprovacao = 0
+    else:
+        aprovacao = None
+
+    # Define que o usuário, por padrão, não confirmou o e-mail
     email_confirmacao = 0
 
+    # Temos uma função para a conexão com o banco -> Precisamos chamá-la
     con = conexao()
+
+    # Abrir o cursor
     cur = con.cursor()
 
     try:
+        # Verifica se o usuário está logado (decodificar é false)
+        # e se ele não é adm (tipo 0)
         if decodificar_token() != False and decodificar_token()['tipo'] != 0:
             return jsonify({'message': 'Você não pode estar logado para criar um novo usuário'})
 
+        # Verifica se o nome está vazio
         if nome == None or nome == "":
             return jsonify({"error": "Nome é uma informação obrigatória."}), 400
 
+        # Verifica se o CPF já está cadastrado
         if verificar_existente(cpf_cnpj, 1) == False:
             return jsonify({"error": "CPF ou CNPJ já cadastrado."}), 400
 
+        # Verifica se o e-mail já está cadastrado
         if verificar_existente(email, 2) == False:
-            return jsonify({"error": "E-mail já cadastrado"}), 400
+            return jsonify({"error": "E-mail já cadastrado"}), 40
 
+        # Verifica se a senha é forte
         if senha_forte(senha) == False:
             return jsonify({
                                "error": "Senha fraca. A senha deve conter pelo menos 8 caracteres, incluindo letras maiúsculas, minúsculas, números e caracteres especiais."}), 400
 
+        # Verifica se as senhas digitadas correspondem
         if senha_correspondente(senha, confirmar_senha) == False:
             return jsonify({"error": "Senhas não correspondem."}), 400
 
@@ -252,7 +280,6 @@ def editar_usuarios(id_usuarios):
 
         html = render_template('template_email.html', mensagem=mensagem, codigo=codigo)
 
-        # Reenvia o código existente
         threading.Thread(target=enviando_email,
                          args=(email, assunto, html)
                          ).start()
@@ -317,6 +344,7 @@ def deletar_usuarios(id_usuarios):
         cur.execute("""DELETE
                        FROM USUARIOS
                        WHERE ID_USUARIOS = ?""", (id_usuarios,))
+
         con.commit()
 
         return jsonify({"message": "Usuário excluído com sucesso"})
@@ -415,7 +443,7 @@ def listar_usuarios():
             return jsonify({'usuarios': usuarios}), 200
         else:
             return jsonify({
-                'error': 'Não foi possível encontrar esse usuário'
+                'error': 'Não foi possível encontrar usuários'
             }), 404
 
     except Exception as e:
@@ -466,7 +494,7 @@ def buscar_usuarios():
             return jsonify({'usuarios': usuarios}), 200
         else:
             return jsonify({
-                'error': 'Não foi possível encontrar esse usuário'
+                'error': 'Não foi possível encontrar usuários com esse cpf/cnpj'
             }), 404
 
     except Exception as e:
@@ -512,7 +540,7 @@ def login():
         ativo = usuario[7]
 
 
-        if tentativa > 3:
+        if tentativa > 3 and tipo != 0:
             return jsonify(
                 {"error": "Esse usuário está bloqueado! Entre em contato com o administrador"}
             ), 400
@@ -549,12 +577,12 @@ def login():
                             max_age=3600)
             return resp
 
-
-        tentativa = tentativa + 1
-        cur.execute("""UPDATE USUARIOS
-                       SET TENTATIVA = ?
-                       WHERE ID_USUARIOS = ?""", (tentativa, id_usuarios))
-        con.commit()
+        if tipo != 0:
+            tentativa = tentativa + 1
+            cur.execute("""UPDATE USUARIOS
+                           SET TENTATIVA = ?
+                           WHERE ID_USUARIOS = ?""", (tentativa, id_usuarios))
+            con.commit()
 
         return jsonify({"error": "Senha incorreta"}), 400
 
@@ -654,8 +682,6 @@ def esqueci_senha():
         usuario = cursor.fetchone()
 
         if not usuario:
-            # Por segurança, muitas APIs retornam 200 mesmo se não achar,
-            # mas aqui mantemos sua lógica de feedback.
             return jsonify(mensagem="Usuário não encontrado"), 404
 
         id_usuarios = usuario[0]

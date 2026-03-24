@@ -13,7 +13,10 @@ from email.mime.multipart import MIMEMultipart
 import jwt
 import datetime
 
+# Função para verificar existente
 def verificar_existente(valor, tipo, id_usuarios = None):
+    # Por padrão, o id_usuario é none (quando não passamos na hora de chamar a função)
+
     con = conexao()
     cur = con.cursor()
     try:
@@ -90,15 +93,15 @@ def senha_antiga(id_usuarios, nova_senha):
         cursor.execute('SELECT senha FROM usuarios WHERE id_usuarios = ?', (id_usuarios, ))
         senha_atual_hash = cursor.fetchone()[0]
 
-        cursor.execute('SELECT FIRST 2 SENHA_HASH FROM HISTORICO_SENHA WHERE id_usuarios = ? ORDER BY DATA_ALTERACAO ASC',
+        cursor.execute('SELECT FIRST 2 SENHA_HASH FROM HISTORICO_SENHA WHERE id_usuarios = ? ORDER BY DATA_ALTERACAO',
                    (id_usuarios,))
         ultimas_senhas = cursor.fetchall()
 
         cursor.execute(
             'SELECT FIRST 1 ID_HISTORICO_SENHA FROM HISTORICO_SENHA WHERE id_usuarios = ? ORDER BY DATA_ALTERACAO ASC',
             (id_usuarios,))
-
         tem_senha = cursor.fetchone()
+
         if tem_senha:
             senha_mais_antiga = tem_senha[0]
 

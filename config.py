@@ -5,7 +5,7 @@ SECRET_KEY = 'chave_super_secreta'
 DEBUG = True
 
 DB_HOST = 'localhost'
-DB_NAME = r'C:\Users\Aluno\Desktop\apiDoar-main\BANCO_DOAR+.FDB'
+DB_NAME = r'C:\Users\Aluno\Downloads\apiDoar2-main\apiDoar2-main\BANCO_DOAR+.FDB'
 DB_USER = 'sysdba'
 DB_PASSWORD = 'sysdba'
 
